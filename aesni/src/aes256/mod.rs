@@ -25,6 +25,14 @@ impl Aes256 {
         data.write(block);
     }
 
+    /// Encrypt in-place one 128 bit block
+    #[inline]
+    pub unsafe fn encrypt_unchecked(&self, block: *mut u8) {
+        let mut data = u64x2::read_unchecked(block);
+        self.encrypt_u64x2(&mut data);
+        data.write_unchecked(block);
+    }
+
     /// Decrypt in-place one 128 bit block
     #[inline]
     pub fn decrypt(&self, block: &mut [u8; 16]) {
@@ -46,6 +54,25 @@ impl Aes256 {
         data.write(block);
     }
 
+    /// Decrypt in-place one 128 bit block
+    #[inline]
+    pub unsafe fn decrypt_unchecked(&self, block: *mut u8) {
+        let keys = self.decrypt_keys;
+        let mut data = u64x2::read_unchecked(block);
+        asm!(include_str!("decrypt.asm")
+            : "+{xmm0}"(data)
+            :
+                "{xmm1}"(keys[14]), "{xmm2}"(keys[13]), "{xmm3}"(keys[12]),
+                "{xmm4}"(keys[11]), "{xmm5}"(keys[10]), "{xmm6}"(keys[9]),
+                "{xmm7}"(keys[8]), "{xmm8}"(keys[7]), "{xmm9}"(keys[6]),
+                "{xmm10}"(keys[5]), "{xmm11}"(keys[4]), "{xmm12}"(keys[3]),
+                "{xmm13}"(keys[2]), "{xmm14}"(keys[1]), "{xmm15}"(keys[0])
+            :
+            : "intel", "alignstack"
+        );
+        data.write_unchecked(block);
+    }
+
     /// Encrypt in-place eight 128 bit blocks (1024 bits in total) using
     /// instruction-level parallelism
     #[inline]
@@ -53,6 +80,15 @@ impl Aes256 {
         let mut data = u64x2::read8(blocks);
         self.encrypt_u64x2_8(&mut data);
         u64x2::write8(data, blocks);
+    }
+
+    /// Encrypt in-place eight 128 bit blocks (1024 bits in total) using
+    /// instruction-level parallelism
+    #[inline]
+    pub unsafe fn encrypt8_unchecked(&self, blocks: *mut u8) {
+        let mut data = u64x2::read8_unchecked(blocks);
+        self.encrypt_u64x2_8(&mut data);
+        u64x2::write8_unchecked(data, blocks);
     }
 
     /// Decrypt in-place eight 128 bit blocks (1024 bits in total) using
@@ -89,6 +125,42 @@ impl Aes256 {
             );
         }
         u64x2::write8(data, blocks);
+    }
+
+    /// Decrypt in-place eight 128 bit blocks (1024 bits in total) using
+    /// instruction-level parallelism
+    #[inline]
+    pub unsafe fn decrypt8_unchecked(&self, blocks: *mut u8) {
+        let keys = self.decrypt_keys;
+        let mut data = u64x2::read8_unchecked(blocks);
+
+        asm!(include_str!("decrypt8_1.asm")
+            :
+                "+{xmm0}"(data[0]), "+{xmm1}"(data[1]), "+{xmm2}"(data[2]),
+                "+{xmm3}"(data[3]), "+{xmm4}"(data[4]), "+{xmm5}"(data[5]),
+                "+{xmm6}"(data[6]), "+{xmm7}"(data[7])
+            :
+                "{xmm8}"(keys[14]), "{xmm9}"(keys[13]), "{xmm10}"(keys[12]),
+                "{xmm11}"(keys[11]), "{xmm12}"(keys[10]), "{xmm13}"(keys[9]),
+                "{xmm14}"(keys[8]), "{xmm15}"(keys[7])
+            :
+            : "intel", "alignstack"
+        );
+
+        asm!(include_str!("decrypt8_2.asm")
+            :
+                "+{xmm0}"(data[0]), "+{xmm1}"(data[1]), "+{xmm2}"(data[2]),
+                "+{xmm3}"(data[3]), "+{xmm4}"(data[4]), "+{xmm5}"(data[5]),
+                "+{xmm6}"(data[6]), "+{xmm7}"(data[7])
+            :
+                "{xmm9}"(keys[6]), "{xmm10}"(keys[5]), "{xmm11}"(keys[4]),
+                "{xmm12}"(keys[3]), "{xmm13}"(keys[2]), "{xmm14}"(keys[1]),
+                "{xmm15}"(keys[0])
+            :
+            : "intel", "alignstack"
+        );
+
+        u64x2::write8_unchecked(data, blocks);
     }
 
     #[inline(always)]
